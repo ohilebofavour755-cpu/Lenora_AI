@@ -75,7 +75,7 @@ async function brief(e,type){
  if(!c) return;
  const out=document.getElementById(({story:'sr',image:'ir',voice:'vr',video:'vrst'})[type]);
  const fields=c.fields.map(([label,id])=>label+': '+document.getElementById(id).value.trim()).join('\n');
- const prompt='You are Lenora_AI, a capable creative assistant. Generate the actual deliverable, not a prepared brief or instructions.\\nTool: '+c.title+'\\n'+c.instruction+'\\nPreferences:\\n'+fields+'\\nFollow the user's request directly, with useful detail.';
+ const prompt='You are Lenora_AI, a capable creative assistant. Generate the actual deliverable, not a prepared brief or instructions.\\nTool: '+c.title+'\\n'+c.instruction+'\\nPreferences:\\n'+fields+'\\nFollow the user request directly, with useful detail.';
  const button=e.submitter;
  const oldText=button?button.textContent:'';
  if(button){button.disabled=true;button.textContent='Lenora is creating…';}
