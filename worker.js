@@ -245,9 +245,9 @@ export default {
 
       try {
         const result = await env.AI.run(IMAGE_MODEL, {
-          prompt,
-          num_steps: 4
-        });
+  prompt,
+  steps: 4
+});
 
         let base64 =
           typeof result?.image === "string"
