@@ -2,6 +2,7 @@
 const SITE_ORIGIN = "https://ohilebofavour755-cpu.github.io";
 
 const TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const VOICE_MODEL = "@cf/deepgram/aura-2-en";
 
@@ -153,31 +154,60 @@ export default {
         ? "You are Lenora_AI Story Maker. Write original, engaging stories with vivid scenes, believable characters, natural dialogue, and a satisfying beginning, middle, and ending when appropriate. Produce the story itself, not advice about writing."
         : "You are Lenora_AI Writer, a helpful creative-writing assistant. Produce the actual polished content requested. Follow the user's format, purpose, and tone. Do not merely explain how to create the content.";
 
-      try {
-        const result = await env.AI.run(TEXT_MODEL, {
-          messages: [
-            {
-              role: "system",
-              content: `${instructions}\nRequested tool: ${toolName}\nRequested tone: ${tone}`
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          max_tokens: 1800
-        });
+            try {
+        if (!env.GEMINI_API_KEY) {
+          return json({
+            error: "Gemini API key is missing."
+          }, 500);
+        }
 
-        const generatedText = String(
-  result?.response ??
-  result?.choices?.[0]?.message?.content ??
-  result?.result?.response ??
-  ""
-).trim();
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": env.GEMINI_API_KEY
+            },
+            body: JSON.stringify({
+              system_instruction: {
+                parts: [{
+                  text: `${instructions}\nRequested tool: ${toolName}\nRequested tone: ${tone}`
+                }]
+              },
+              contents: [{
+                role: "user",
+                parts: [{ text: prompt }]
+              }],
+              generationConfig: {
+                maxOutputTokens: 1200,
+                temperature: 0.9
+              }
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          return json({
+            error: "Gemini text generation failed.",
+            detail: String(
+              result?.error?.message || response.statusText
+            ).slice(0, 500)
+          }, 502);
+        }
+
+        const generatedText = (
+          result?.candidates?.[0]?.content?.parts || []
+        )
+          .map(part => part.text || "")
+          .join("")
+          .trim();
 
         if (!generatedText) {
           return json({
-            error: "Cloudflare AI returned no text.",
+            error: "Gemini returned no text.",
             detail: JSON.stringify(result).slice(0, 500)
           }, 502);
         }
@@ -185,13 +215,12 @@ export default {
         return json({
           ok: true,
           text: generatedText,
-          model: TEXT_MODEL
+          model: GEMINI_MODEL
         });
       } catch (error) {
         return json({
-          error: "Cloudflare text generation failed.",
-          detail: String(error?.message || error).slice(0, 500),
-          hint: "Check Workers AI model availability, account access, and usage limits."
+          error: "Gemini text generation failed.",
+          detail: String(error?.message || error).slice(0, 500)
         }, 502);
       }
     }
