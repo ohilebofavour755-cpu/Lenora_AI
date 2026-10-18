@@ -1,7 +1,7 @@
 
 const SITE_ORIGIN = "https://ohilebofavour755-cpu.github.io";
 
-const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const VOICE_MODEL = "@cf/deepgram/aura-2-en";
 
