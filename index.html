@@ -78,6 +78,20 @@ async function generateStoryChapterNow(){const project=saveStoryProject();if(!pr
 function exportStoryLibrary(){const items=readStoryLibrary();const blob=new Blob([JSON.stringify(items,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='lenora-story-library-backup.json';a.click();URL.revokeObjectURL(url);}
 document.getElementById('storyImportFile').addEventListener('change',async e=>{const file=e.target.files&&e.target.files[0];if(!file)return;try{const imported=JSON.parse(await file.text());if(!Array.isArray(imported)||imported.some(p=>!p||typeof p.title!=='string'||!Array.isArray(p.chapters)))throw new Error('That file does not look like a Lenora Story Library backup.');const existing=readStoryLibrary();const map=new Map(existing.map(p=>[p.id,p]));imported.forEach(p=>map.set(p.id||makeStoryId(),p));if(!writeStoryLibrary(Array.from(map.values())))throw new Error('Could not save imported projects.');activeStoryId=null;renderStoryLibrary();alert('Story Library backup imported. Open a project to continue.');}catch(err){alert(err.message||'Could not import that backup.');}finally{e.target.value='';}});
 renderStoryLibrary();
+ function updateStoryMode() {
+  const isChapterOutline =
+    document.getElementById('sf').value === 'Chapter outline';
+
+  document.getElementById('storyLibrary').hidden =
+    !isChapterOutline;
+}
+
+document.getElementById('sf').addEventListener(
+  'change',
+  updateStoryMode
+);
+
+updateStoryMode();
 
 async function brief(e,type){
  e.preventDefault();
