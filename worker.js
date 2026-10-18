@@ -169,8 +169,11 @@ export default {
         });
 
         const generatedText = String(
-          result?.response || ""
-        ).trim();
+  result?.response ??
+  result?.choices?.[0]?.message?.content ??
+  result?.result?.response ??
+  ""
+).trim();
 
         if (!generatedText) {
           return json({
