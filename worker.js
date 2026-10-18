@@ -1,7 +1,9 @@
+
 const SITE_ORIGIN = "https://ohilebofavour755-cpu.github.io";
+
+const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const VOICE_MODEL = "@cf/deepgram/aura-2-en";
-const TEXT_MODEL = "gemini-2.5-flash";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -15,12 +17,14 @@ export default {
     const origin = request.headers.get("Origin");
     const allowed = origin === SITE_ORIGIN;
 
-    const cors = allowed ? {
-      "Access-Control-Allow-Origin": SITE_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Vary": "Origin"
-    } : {};
+    const cors = allowed
+      ? {
+          "Access-Control-Allow-Origin": SITE_ORIGIN,
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Vary": "Origin"
+        }
+      : {};
 
     const json = (data, status = 200, extra = {}) =>
       new Response(JSON.stringify(data), {
@@ -29,7 +33,10 @@ export default {
       });
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: cors });
+      return new Response(null, {
+        status: 204,
+        headers: cors
+      });
     }
 
     if (
@@ -40,6 +47,7 @@ export default {
         ok: true,
         service: "Lenora_AI",
         status: "backend_ready",
+        provider: "Cloudflare Workers AI",
         tools: [
           "AI Writer",
           "Story Maker",
@@ -56,12 +64,13 @@ export default {
       return json({
         ok: false,
         comingSoon: true,
-        error: "Video Studio is coming soon. The other Lenora tools are being stabilised first."
+        error: "Video Studio is coming soon."
       }, 410);
     }
 
     const isImage = route === "/api/image";
-    const isWrite = route === "/api/write" || route === "/api/story";
+    const isWrite =
+      route === "/api/write" || route === "/api/story";
     const isVoice = route === "/api/voice";
 
     if (!isImage && !isWrite && !isVoice) {
@@ -73,7 +82,10 @@ export default {
     }
 
     if (!allowed) {
-      return json({ error: "Request origin not allowed." }, 403);
+      return json({
+        error: "Request origin not allowed.",
+        detail: "Check the website origin configured in the Worker."
+      }, 403);
     }
 
     if (
@@ -99,26 +111,29 @@ export default {
       return json({ error: "Invalid JSON request." }, 400);
     }
 
-    // AI WRITER AND STORY MAKER
+    if (!env.AI) {
+      return json({
+        error: "Cloudflare Workers AI binding is missing.",
+        detail: "Add an AI binding named AI in the Worker settings."
+      }, 500);
+    }
+
+    // AI WRITER AND STORY MAKER — CLOUDFLARE AI
     if (isWrite) {
       const prompt = String(
         body.prompt || body.text || body.content || ""
       ).trim();
 
       if (!prompt) {
-        return json({ error: "Please enter a prompt first." }, 400);
+        return json({
+          error: "Please enter a prompt first."
+        }, 400);
       }
 
       if (prompt.length > 8000) {
         return json({
           error: "Please shorten your request to 8,000 characters or fewer."
         }, 413);
-      }
-
-      if (!env.LENORA_AI_BACKEND_API_KEY) {
-        return json({
-          error: "The Gemini API key secret is missing in Cloudflare. Add LENORA_AI_BACKEND_API_KEY as a Worker secret."
-        }, 500);
       }
 
       const toolName = String(
@@ -134,98 +149,48 @@ export default {
       const isStory =
         route === "/api/story" || /story/i.test(toolName);
 
-      const systemInstruction = isStory
-        ? "You are Lenora_AI Story Maker. Create an original, engaging story or story deliverable based on the request. Use vivid scenes, believable characters, natural dialogue, and a satisfying beginning, middle, and ending when appropriate. Do not merely explain how to write it."
-        : "You are Lenora_AI Writer, a helpful creative-writing assistant. Produce the actual polished content requested, not instructions about creating it. Follow the requested format and tone.";
+      const instructions = isStory
+        ? "You are Lenora_AI Story Maker. Write original, engaging stories with vivid scenes, believable characters, natural dialogue, and a satisfying beginning, middle, and ending when appropriate. Produce the story itself, not advice about writing."
+        : "You are Lenora_AI Writer, a helpful creative-writing assistant. Produce the actual polished content requested. Follow the user's format, purpose, and tone. Do not merely explain how to create the content.";
 
       try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${TEXT_MODEL}:generateContent`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": env.LENORA_AI_BACKEND_API_KEY
+        const result = await env.AI.run(TEXT_MODEL, {
+          messages: [
+            {
+              role: "system",
+              content: `${instructions}\nRequested tool: ${toolName}\nRequested tone: ${tone}`
             },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [{ text: systemInstruction }]
-              },
-              contents: [{
-                role: "user",
-                parts: [{
-                  text: `Tool: ${toolName}\nTone: ${tone}\n\nRequest:\n${prompt}`
-                }]
-              }],
-              generationConfig: {
-                maxOutputTokens: 1800,
-                temperature: 0.7
-              }
-            })
-          }
-        );
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          max_tokens: 1800
+        });
 
-        const data = await response.json().catch(() => ({}));
+        const generatedText = String(
+          result?.response || ""
+        ).trim();
 
-        if (!response.ok) {
-          const providerMessage = String(
-            data?.error?.message || ""
-          ).slice(0, 350);
-
-          const hint = response.status === 429
-            ? "Gemini quota or rate limit reached. Check Google AI Studio usage and try again later."
-            : (
-                response.status === 401 ||
-                response.status === 403 ||
-                response.status === 400
-              )
-              ? "Check that LENORA_AI_BACKEND_API_KEY is a valid Gemini API key and that the key has API access."
-              : "Check the Gemini API configuration and try again.";
-
+        if (!generatedText) {
           return json({
-            error: "Text generation failed.",
-            hint,
-            providerStatus: response.status,
-            providerMessage
-          }, 502);
-        }
-
-        const text = (
-          data?.candidates?.[0]?.content?.parts || []
-        )
-          .map(part => part.text || "")
-          .join("\n")
-          .trim();
-
-        if (!text) {
-          const blockReason = data?.promptFeedback?.blockReason;
-
-          return json({
-            error: blockReason
-              ? `Gemini blocked this request (${blockReason}). Try rephrasing it.`
-              : "Gemini returned no text. Please try a different prompt."
+            error: "Cloudflare AI returned no text.",
+            detail: JSON.stringify(result).slice(0, 500)
           }, 502);
         }
 
         return json({
           ok: true,
-          text,
+          text: generatedText,
           model: TEXT_MODEL
         });
-
       } catch (error) {
         return json({
-          error: "Could not contact Gemini for text generation.",
-          detail: String(error?.message || error).slice(0, 300)
+          error: "Cloudflare text generation failed.",
+          detail: String(error?.message || error).slice(0, 500),
+          hint: "Check Workers AI model availability, account access, and usage limits."
         }, 502);
       }
-    }
-
-    // IMAGE AND VOICE REQUIRE THE CLOUDFLARE AI BINDING
-    if (!env.AI) {
-      return json({
-        error: "Cloudflare Workers AI binding named AI is missing. Add the AI binding in Worker settings."
-      }, 500);
     }
 
     // IMAGE STUDIO
@@ -235,7 +200,9 @@ export default {
       ).trim();
 
       if (!prompt) {
-        return json({ error: "Please describe the image." }, 400);
+        return json({
+          error: "Please describe the image."
+        }, 400);
       }
 
       if (prompt.length > 1500) {
@@ -245,10 +212,10 @@ export default {
       }
 
       try {
-        const result = await env.AI.run(
-          IMAGE_MODEL,
-          { prompt, num_steps: 4 }
-        );
+        const result = await env.AI.run(IMAGE_MODEL, {
+          prompt,
+          num_steps: 4
+        });
 
         let base64 =
           typeof result?.image === "string"
@@ -278,7 +245,9 @@ export default {
 
         if (!base64) {
           return json({
-            error: "The image model returned no image. Check Workers AI access and usage limits."
+            error: "The image model returned no image.",
+            detail: JSON.stringify(result).slice(0, 500),
+            hint: "Check image model availability and Workers AI usage limits."
           }, 502);
         }
 
@@ -287,24 +256,25 @@ export default {
           image: `data:${mime};base64,${base64}`,
           model: IMAGE_MODEL
         });
-
       } catch (error) {
         return json({
           error: "Image generation failed.",
-          detail: String(error?.message || error).slice(0, 350),
-          hint: "Check the Cloudflare AI binding and Workers AI usage limits."
+          detail: String(error?.message || error).slice(0, 500),
+          hint: "Check the image model, AI binding, and Workers AI usage limits."
         }, 502);
       }
     }
 
-    // VOICE STUDIO
+    // VOICE STUDIO — PRESERVED
     if (isVoice) {
       const text = String(
         body.text || body.prompt || ""
       ).trim();
 
       if (!text) {
-        return json({ error: "Please enter text to speak." }, 400);
+        return json({
+          error: "Please enter text to speak."
+        }, 400);
       }
 
       if (text.length > 5000) {
@@ -360,7 +330,10 @@ export default {
           });
         }
 
-        if (audio?.audio && typeof audio.audio === "string") {
+        if (
+          audio?.audio &&
+          typeof audio.audio === "string"
+        ) {
           const binary = atob(audio.audio);
 
           const bytes = Uint8Array.from(
@@ -381,12 +354,11 @@ export default {
         return json({
           error: "The voice model returned an unexpected audio format."
         }, 502);
-
       } catch (error) {
         return json({
           error: "Voice generation failed.",
-          detail: String(error?.message || error).slice(0, 350),
-          hint: "Check the Aura voice model name, Workers AI binding, and usage limits."
+          detail: String(error?.message || error).slice(0, 500),
+          hint: "Check the Aura voice model, AI binding, and usage limits."
         }, 502);
       }
     }
